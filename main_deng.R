@@ -3,6 +3,22 @@ library(xts) # xts
 library(QRM) # ESnorm
 library(car) # qqPlot
 
+#' @title function for computing total loss of a portfolio
+#' @param RET vector or matrix, returns
+#' @param weights vector, weights of each asset
+#' @param value numeric, total portfolio value
+#' @param linear logical, indicator of whether the RET is linear-return or log-return
+loss.portfolio = function(RET, weights, value, linear=FALSE){
+  if (is.matrix(RET)) { Th = nrow(RET) } else { Th = 1 } # time horizon
+  weight.mat = matrix(weights, nrow=Th, ncol=length(weights), byrow=TRUE) # weights in a matrix
+  Vw.mat = value * weight.mat # values of each assets in a matriix
+  if (linear) { summand = RET*Vw.mat } else { summand = (exp(RET)-1)*Vw.mat }
+  loss = -rowSums(summand)
+  return(loss)
+}
+
+
+
 ### Data ----------------------------------------------------------------------------
 setwd("/Users/Bowen.Deng/Desktop/LSE/ST429/project_025")
 tmp = read.csv("429stocks.csv", stringsAsFactors=FALSE)
@@ -37,23 +53,21 @@ plot.zoo(cbind(SP500,RET[,6:10]), screens=1:10, col=c("royalblue",rep(1,5)), las
 ### Portfolio ---------------------------------------------------------------------------
 pf.value = 10000
 pf.weights = rep(0.1,10)
-
-loss = lo.fn(RET, pf.weights, pf.value)
-
+# compute loss of portfolio
+loss = loss.portfolio(RET, pf.weights, pf.value)
+# check normality
+qqPlot(loss)
+# normal VaR and ES
 mu.hat = colMeans(RET)
 sigma.hat = var(RET) #*(nrow(RET)-1)/nrow(RET)
-
 meanloss = -sum(pf.weights*mu.hat) * pf.value
 varloss = pf.value^2 * as.numeric(t(pf.weights) %*% sigma.hat %*% pf.weights)
-
 VaR.normal = meanloss + sqrt(varloss) * qnorm(0.95)
 ES.normal = meanloss + sqrt(varloss) * dnorm(qnorm(0.95))/(1-0.95) # ESnorm(0.95, mu=meanloss, sd=sqrt(varloss))
-
-qqPlot(loss)
-
+# historical VaR and ES
 VaR.hs = quantile(loss,0.95)
 ES.hs <- mean(loss[loss>VaR.hs])
-
+# histogram and comparing
 hist(loss,nclass=100, prob=TRUE, xlab="Loss Distribution", main="Historical simulation")
 abline(v=c(VaR.normal,ES.normal),col=1,lty=2)
 abline(v=c(VaR.hs,ES.hs),col=2,lty=5)
