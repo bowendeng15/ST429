@@ -53,8 +53,10 @@ plot.zoo(cbind(SP500,RET[,6:10]), screens=1:10, col=c("royalblue",rep(1,5)), las
 ### Portfolio ---------------------------------------------------------------------------
 pf.value = 10000
 pf.weights = rep(0.1,10)
+alpha = c(0.95,0.975,0.99,0.995,0.999,0.9999)
 # compute loss of portfolio
 loss = loss.portfolio(RET, pf.weights, pf.value)
+length(loss)
 # check normality
 qqPlot(loss)
 # normal VaR and ES
@@ -62,13 +64,19 @@ mu.hat = colMeans(RET)
 sigma.hat = var(RET) #*(nrow(RET)-1)/nrow(RET)
 meanloss = -sum(pf.weights*mu.hat) * pf.value
 varloss = pf.value^2 * as.numeric(t(pf.weights) %*% sigma.hat %*% pf.weights)
-VaR.normal = meanloss + sqrt(varloss) * qnorm(0.95)
-ES.normal = meanloss + sqrt(varloss) * dnorm(qnorm(0.95))/(1-0.95) # ESnorm(0.95, mu=meanloss, sd=sqrt(varloss))
+VaR.normal = meanloss + sqrt(varloss) * qnorm(alpha)
+ES.normal = meanloss + sqrt(varloss) * dnorm(qnorm(alpha))/(1-alpha) # ESnorm(0.95, mu=meanloss, sd=sqrt(varloss))
 # historical VaR and ES
-VaR.hs = quantile(loss,0.95)
-ES.hs <- mean(loss[loss>VaR.hs])
+VaR.hs = quantile(loss,alpha)
+ES.hs = apply(as.array(VaR.hs), 1, function(VaR){ mean(loss[loss > VaR]) } )
 # histogram and comparing
-hist(loss,nclass=100, prob=TRUE, xlab="Loss Distribution", main="Historical simulation")
-abline(v=c(VaR.normal,ES.normal),col=1,lty=2)
-abline(v=c(VaR.hs,ES.hs),col=2,lty=5)
-legend("topleft", legend = c("normal","HS"), col=1:2, lty=1, bty="n") 
+par(mfrow=c(2,1))
+par(mar = c(4.6, 4.1, 3.1, 2.1))
+hist(loss,nclass=100, prob=TRUE, xlab="Portfolio Loss", main=paste("VaR at", paste(names(VaR.hs),collapse=", ")))
+abline(v=VaR.hs,col=1,lty=2)
+abline(v=VaR.normal,col=2,lty=5)
+legend("topleft", legend=c("normal","HS"), col=1:2, lty=1, bty="n") 
+hist(loss,nclass=100, prob=TRUE, xlab="Portfolio Loss", main=paste("ES at", paste(names(VaR.hs),collapse=", ")))
+abline(v=ES.hs,col=1,lty=2)
+abline(v=ES.normal,col=2,lty=5)
+legend("topleft", legend=c("normal","HS"), col=1:2, lty=1, bty="n") 
