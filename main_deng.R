@@ -80,3 +80,30 @@ hist(loss,nclass=100, prob=TRUE, xlab="Portfolio Loss", main=paste("ES at", past
 abline(v=ES.hs,col=1,lty=2)
 abline(v=ES.normal,col=2,lty=5)
 legend("topleft", legend=c("normal","HS"), col=1:2, lty=1, bty="n") 
+
+
+
+### Copulas ---------------------------------------------------------------------------
+CopulaRET = apply(RET, 2, edf, adjust=1)
+# scatterplot
+pairs(as.matrix(RET), pch=".")
+pairs(as.matrix(CopulaRET), pch=".") # plot(as.matrix(CopulaRET[,4:5]), pch=1) # CVA
+
+## fit -----------------------------------------------
+# gauss copula
+fit.gauss = fit.gausscopula(CopulaRET)
+fit.gauss$ll.max
+# gauss copula - method of moments: P^ = Spearman
+( ll.gauss.spearman = sum(dcopula.gauss(CopulaRET, Spearman(CopulaRET), log=TRUE)) )
+# gauss copula - method of moments: P^ = sin(pi * Kendall/2)
+( ll.gauss.kendall = sum(dcopula.gauss(CopulaRET, sin(pi*Kendall(CopulaRET)/2), log=TRUE)) )
+# t copula
+fit.t = fit.tcopula(CopulaRET)
+fit.t$ll.max # sum(dcopula.t(CopulaRET, df=fit.t$nu, Sigma=fit.t$P,log=TRUE))
+# t copula - method of moments: P^ = Spearman
+fit.t.spearman = fit.tcopula(CopulaRET, method="Spearman")
+fit.t.spearman$ll.max
+# t copula - method of moments: P^ = sin(pi * Kendall/2)
+fit.t.kendall = fit.tcopula(CopulaRET, method="Kendall")
+fit.t.kendall$ll.max
+
