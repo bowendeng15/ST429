@@ -1,0 +1,114 @@
+---
+title: '429'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("zoo")
+library(xts)
+library(ggplot2)
+library(lubridate)
+library(copula)
+library(qrmdata)
+library(qrmtools)
+library(qqtest)
+library(rugarch)
+library(ADGofTest)
+```
+
+```{r Data, include=FALSE}
+setwd("C:/Users/Eli/Desktop/429")
+tmp = read.csv("429stocks.csv", stringsAsFactors=FALSE)
+tmp$TICKER[tmp$TICKER=="SPWRA"] = "SPWR"
+# extract tickers and dates
+tickers = unique(tmp$TICKER)
+dates = as.Date(as.character( unique(tmp$date) ), format="%Y%m%d")
+# returns for stocks
+RET = c()
+for (t in tickers){
+  RET = cbind(RET, tmp$RET[tmp$TICKER==t])
+}
+colnames(RET) = tickers
+RET = log(RET+1)
+RET = xts(RET, order.by=dates)
+head(RET)
+# SP500 return
+tmp = read.csv("429sp.csv", stringsAsFactors=FALSE)
+SP500 = xts(tmp$vwretd, order.by=dates)
+SP500 = log(SP500+1)
+```
+
+```{r log return}
+library(viridis) # viridis, magma, inferno, plasma
+# COLORS = c("black","darkblue","royalblue","maroon3","pink4","darkred","darkorange2")
+plot.zoo(cbind(SP500,RET[,1:5]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="")
+plot.zoo(cbind(SP500,RET[,6:10]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="")
+```
+
+```{r Portfolio}
+pf.value = 10000
+pf.weights = rep(0.1,10)
+# compute loss of portfolio
+loss = loss.portfolio(RET, pf.weights, pf.value)
+# check normality
+qqPlot(loss)
+# normal VaR and ES
+mu.hat = colMeans(RET)
+sigma.hat = var(RET) #*(nrow(RET)-1)/nrow(RET)
+meanloss = -sum(pf.weights*mu.hat) * pf.value
+varloss = pf.value^2 * as.numeric(t(pf.weights) %*% sigma.hat %*% pf.weights)
+VaR.normal = meanloss + sqrt(varloss) * qnorm(0.95)
+ES.normal = meanloss + sqrt(varloss) * dnorm(qnorm(0.95))/(1-0.95) # ESnorm(0.95, mu=meanloss, sd=sqrt(varloss))
+# historical VaR and ES
+VaR.hs = quantile(loss,0.95)
+ES.hs = mean(loss[loss>VaR.hs])
+# histogram and comparing
+hist(loss,nclass=100, prob=TRUE, xlab="Loss Distribution", main="Historical simulation")
+abline(v=c(VaR.normal,ES.normal),col=1,lty=2)
+abline(v=c(VaR.hs,ES.hs),col=2,lty=5)
+legend("topleft", legend = c("normal","HS"), col=1:2, lty=1, bty="n") 
+```
+
+```{r copulas-test}
+#pseudo-observations
+RET_C = as.matrix(RET)
+U = pobs(RET_C)
+#U = RET_C
+pairs2(U, cex = 0.4, col = adjustcolor("black", alpha.f = 0.5))
+d = ncol(RET)
+#Fitting a Gumbel copula
+fit.gc = fitCopula(gumbelCopula(dim = d),data = U, method = "mpl")
+fit.gc@estimate # estimated copula parameter
+gc = fit.gc@copula # fitted copula
+
+# pairwise Kendall's tau and upper tail-dependence coefficients
+p2P(tau(gc), d = d)
+p2P(lambda(gc)["upper"], d = d)
+
+# Fitting a t copula
+fit.tc = fitCopula(tCopula(dim = d, dispstr = "un"), data = U, method = "itau.mpl")
+(nu = tail(fit.tc@estimate, n = 1)) # estimated degrees of freedom nu
+(P = p2P(head(fit.tc@estimate, n = -1))) # estimated correlation matrix
+tc = fit.tc@copula # fitted copula
+
+# pairwise Kendall's tau and upper tail-dependence coefficients
+p2P(tau(tc))
+p2P(lambda(tc)[(choose(d,2)+1):(d*(d-1))])
+```
+
+```{r goodness-of-fit_bootstrap}
+set.seed(271)
+N = 100
+# Check the Gumbel copula
+gof.gc = gofCopula(gc, x = U, N = N) 
+stopifnot(gof.gc$p.value < 0.05)
+U.Rsnbl = cCopula(U, copula = tc)
+pairs2(U.Rsnbl, cex = 0.4, col = adjustcolor("black", alpha.f = 0.5)) 
+
+# A (sophisticated) Q-Q plot
+qqtest(U.Rsnbl.K, dist = "kay", df = d, nreps = 1000, pch = 1,
+       col = adjustcolor("black", alpha.f = 0.5), main = "",
+       xlab = substitute(K[dof]~"quantiles", list(dof = d)))
+```
+
