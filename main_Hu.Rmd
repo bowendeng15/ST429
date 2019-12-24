@@ -15,6 +15,8 @@ library(qrmtools)
 library(qqtest)
 library(rugarch)
 library(ADGofTest)
+library(kazaam)
+#install_github("vqv/ggbiplot")
 ```
 
 ```{r Data, include=FALSE}
@@ -74,7 +76,7 @@ legend("topleft", legend = c("normal","HS"), col=1:2, lty=1, bty="n")
 #pseudo-observations
 RET_C = as.matrix(RET)
 U = pobs(RET_C)
-#U = RET_C
+U = RET_C
 pairs2(U, cex = 0.4, col = adjustcolor("black", alpha.f = 0.5))
 d = ncol(RET)
 #Fitting a Gumbel copula
@@ -110,5 +112,22 @@ pairs2(U.Rsnbl, cex = 0.4, col = adjustcolor("black", alpha.f = 0.5))
 qqtest(U.Rsnbl.K, dist = "kay", df = d, nreps = 1000, pch = 1,
        col = adjustcolor("black", alpha.f = 0.5), main = "",
        xlab = substitute(K[dof]~"quantiles", list(dof = d)))
+RET.pca
+```
+
+```{r PCA}
+RET.pca <- prcomp(RET_C[,c(1:10)], center = TRUE,scale. = TRUE)
+summary(RET.pca)
+str(RET.pca)
+RET.pca$rotation
+library(devtools)
+#install_github("vqv/ggbiplot")
+library(ggbiplot)
+ggbiplot(RET.pca,labels=rownames(RET_C))
+plot(RET.pca$x[,1], RET.pca$x[,2])
+#sd
+RET.pca_var <- RET.pca$sdev^2
+RET.pca_var_per <- round(RET.pca_var/sum(RET.pca_var)*100,1)
+barplot(RET.pca_var_per)
 ```
 
