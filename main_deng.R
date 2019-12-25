@@ -1,7 +1,8 @@
 ### Package ----------------------------------------------------------------------------
 library(xts) # xts
-library(QRM) # ESnorm
 library(car) # qqPlot
+library(QRM) # ESnorm
+library(copula) 
 
 #' @title function for computing total loss of a portfolio
 #' @param RET vector or matrix, returns
@@ -32,21 +33,19 @@ for (t in tickers){
   RET = cbind(RET, tmp$RET[tmp$TICKER==t])
 }
 colnames(RET) = tickers
-RET = log(RET+1)
+RET = log(RET+1) # RET_{t}:=S_{t+1}/S_{t}-1, X_{t}=log(S_{t+1}/S_{t})=log(RET_{t}+1)
 RET = xts(RET, order.by=dates)
 head(RET)
 # SP500 return
 tmp = read.csv("429sp.csv", stringsAsFactors=FALSE)
 SP500 = xts(tmp$vwretd, order.by=dates)
-SP500 = log(SP500+1)
+SP500 = log(SP500+1) 
 
 
 
 ### Log Return ----------------------------------------------------------------------------
-# library(viridis) # viridis, magma, inferno, plasma
-# COLORS = c("black","darkblue","royalblue","maroon3","pink4","darkred","darkorange2")
-plot.zoo(cbind(SP500,RET[,1:5]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="")
-plot.zoo(cbind(SP500,RET[,6:10]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="")
+plot.zoo(cbind(SP500,RET[,1:5]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="",cex.main=2)
+plot.zoo(cbind(SP500,RET[,6:10]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="",cex.main=2)
 
 
 
@@ -84,26 +83,94 @@ legend("topleft", legend=c("normal","HS"), col=1:2, lty=1, bty="n")
 
 
 ### Copulas ---------------------------------------------------------------------------
-CopulaRET = apply(RET, 2, edf, adjust=1)
+Uret = apply(RET, 2, edf, adjust=1)
 # scatterplot
-pairs(as.matrix(RET), pch=".")
-pairs(as.matrix(CopulaRET), pch=".") # plot(as.matrix(CopulaRET[,4:5]), pch=1) # CVA
+pairs2(RET, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
+pairs2(Uret, cex=0.1, col=adjustcolor("black",alpha.f=0.3)) # plot(as.matrix(Uret[,4:5]), pch=1) # CVA
 
-## fit -----------------------------------------------
+
+
+## "QRM" version -----------------------------------------------
+# # gauss copula
+# fit.gauss = fit.gausscopula(Uret)
+# fit.gauss$ll.max
+# # gauss copula - method of moments: P^ = 2*sin(pi * Spearman/6))
+# sum(dcopula.gauss(Uret, 2*sin(pi*Spearman(Uret)/6), log=TRUE))
+# # t copula
+# fit.t = fit.tcopula(Uret)
+# fit.t$ll.max # sum(dcopula.t(Uret, df=fit.t$nu, Sigma=fit.t$P,log=TRUE))
+# # t copula - method of moments: P^ = Spearman
+# fit.t.spearman = fit.tcopula(Uret, method="Spearman")
+# fit.t.spearman$ll.max
+# # t copula - method of moments: P^ = sin(pi * Kendall/2)
+# fit.t.kendall = fit.tcopula(Uret, method="Kendall")
+# fit.t.kendall$ll.max
+# # AC clayton
+# fit.clayton = fit.AC(Uret, "clayton")
+# fit.clayton$ll.max
+
+
+## "copula" version -----------------------------------------------
+# example: find dependenc structure of GE and ITT
+U = Uret[,c(8,9)] 
 # gauss copula
-fit.gauss = fit.gausscopula(CopulaRET)
-fit.gauss$ll.max
-# gauss copula - method of moments: P^ = Spearman
-( ll.gauss.spearman = sum(dcopula.gauss(CopulaRET, Spearman(CopulaRET), log=TRUE)) )
-# gauss copula - method of moments: P^ = sin(pi * Kendall/2)
-( ll.gauss.kendall = sum(dcopula.gauss(CopulaRET, sin(pi*Kendall(CopulaRET)/2), log=TRUE)) )
+fit.c.gauss = fitCopula(normalCopula(dim=2,dispstr="un"), data=U, method="mpl")
+fit.c.gauss@loglik
+# gauss copula - method of moments: P^ = 2*sin(pi * Spearman/6))
+fit.c.gauss.spearman = fitCopula(normalCopula(dim=2,dispstr = "un"), data = U, method = "irho")
+fit.c.gauss.spearman@loglik = sum( dCopula(U, normalCopula(param=fit.c.gauss.spearman@estimate,dim=2,dispstr="un"), log=T) )
+fit.c.gauss.spearman@loglik
 # t copula
-fit.t = fit.tcopula(CopulaRET)
-fit.t$ll.max # sum(dcopula.t(CopulaRET, df=fit.t$nu, Sigma=fit.t$P,log=TRUE))
-# t copula - method of moments: P^ = Spearman
-fit.t.spearman = fit.tcopula(CopulaRET, method="Spearman")
-fit.t.spearman$ll.max
+fit.c.t = fitCopula(tCopula(dim=2,dispstr="un"), data=U, method="mpl")
+fit.c.t@loglik
 # t copula - method of moments: P^ = sin(pi * Kendall/2)
-fit.t.kendall = fit.tcopula(CopulaRET, method="Kendall")
-fit.t.kendall$ll.max
+fit.c.t.tau = fitCopula(tCopula(dim=2,dispstr="un"), data=U, method="itau.mpl")
+fit.c.t.tau@loglik
+# AC gumbel copula
+fit.c.gumbel = fitCopula(gumbelCopula(dim=2), data=U, method="mpl")
+fit.c.gumbel@loglik
+# AC gumbel copula - method of moments: tau
+fit.c.gumbel.tau = fitCopula(gumbelCopula(dim=2), data=U, method="itau")
+fit.c.gumbel.tau@loglik = sum( dCopula(U, gumbelCopula(param=fit.c.gumbel.tau@estimate,dim=2), log=T) )
+fit.c.gumbel.tau@loglik
+# AC clayton copula
+fit.c.clayton = fitCopula(claytonCopula(dim=2), data=U, method="mpl")
+fit.c.clayton@loglik
+# AC clayton copula - method of moments: tau
+fit.c.clayton.tau = fitCopula(claytonCopula(dim=2), data=U, method="itau")
+fit.c.clayton.tau@loglik = sum( dCopula(U, claytonCopula(param=fit.c.clayton.tau@estimate,dim=2), log=T) )
+fit.c.clayton.tau@loglik
+# AC frank copula
+fit.c.frank = fitCopula(frankCopula(dim=2), data=U, method="mpl")
+fit.c.frank@loglik
+# AC frank copula - method of moments: tau
+fit.c.frank.tau = fitCopula(frankCopula(dim=2), data=U, method="itau")
+fit.c.frank.tau@loglik = sum( dCopula(U, frankCopula(param=fit.c.frank.tau@estimate,dim=2), log=T) )
+fit.c.frank.tau@loglik
 
+res = list(fit.c.gauss, fit.c.gauss.spearman
+           , fit.c.t, fit.c.t.tau
+           , fit.c.frank, fit.c.frank.tau
+           , fit.c.gumbel, fit.c.gumbel.tau
+           , fit.c.clayton, fit.c.clayton.tau)
+funcloglik = function(fit){
+  fit@loglik
+}
+funclambda = function(fit){
+  lambda(fit@copula)
+}
+
+# loglikelihood of all copula fit
+tmp = matrix( sapply(res, funcloglik), nrow=1 )
+colnames(tmp) = c("gauss","gauss.irho","t","t.tau","frank","frank.tau","gumbel","gumbel.tau","clayton","clayton.tau")
+rownames(tmp) = "loglik"
+tmp
+
+# tail dependence(lambda) of all copula fit
+tmp = sapply(res, funclambda)
+colnames(tmp) = c("gauss","gauss.irho","t","t.tau","frank","frank.tau","gumbel","gumbel.tau","clayton","clayton.tau")
+tmp
+
+
+### Marshall-Olkin Copula ---------------------------------------------------------------------------
+moCopula() # Marshall-Olkin copulas do not have densities (in "copula" package)
