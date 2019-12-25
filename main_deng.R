@@ -127,7 +127,7 @@ fit.copulas = function(U){
              , fit.clayton=fit.clayton, fit.clayton.tau=fit.clayton.tau)
 }
 
-#' @title fit bivarite copulas for each bivariate pair of possible combinations
+#' @title fit multivariate copulas for each bivariate pair of possible combinations
 #' @param U matrix, multivariate pseudo observations
 #' @return list, have choose(10,2) slots of object returned by fit.copulas
 pairwise.fit.copulas = function(U){
@@ -144,6 +144,7 @@ pairwise.fit.copulas = function(U){
 
 # fit pairwisely - take 5 minutes
 FIT = pairwise.fit.copulas(Uret)
+load("FIT.RData") # load the result directly
 
 tickerpairs = apply(combn(tickers,2), 2, paste, collapse=":")
 copulanames = c("gauss","gauss.irho","t","t.tau","frank","frank.tau","gumbel","gumbel.tau","clayton","clayton.tau")
@@ -176,8 +177,22 @@ for (i in 1:length(FIT)){
   LAMBDA = rbind(LAMBDA, tmp)
 }
 colnames(LAMBDA) = copulanames
-# print
-LAMBDA
+LAMBDA # print
+
+
+# Spearman's rho
+RHO = c()
+for (i in 1:length(FIT)){
+  tickerpair = tickerpairs[i]
+  tmp = sapply(FIT[[i]], function(fit){tryCatch(rho(fit@copula), error=function(err) NA)} )
+  tmp = matrix(tmp, nrow=1)
+  rownames(tmp) = tickerpair
+  # rownames(tmp) = tickerpair
+  RHO = rbind(RHO, tmp)
+}
+colnames(RHO) = copulanames
+RHO # print
+
 
 
 ### Marshall-Olkin Copula ---------------------------------------------------------------------------
