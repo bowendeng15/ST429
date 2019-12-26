@@ -3,6 +3,7 @@ library(xts) # xts
 library(car) # qqPlot
 library(QRM) # ESnorm
 library(copula)
+library(factoextra) # plot for pca
 
 
 
@@ -120,11 +121,11 @@ fit.copulas = function(U){
   # AC frank copula - method of moments: tau
   fit.frank.tau = tryFitCopula(frankCopula(dim=2), data=U, method="itau")
   fit.frank.tau@loglik = sum( dCopula(U, frankCopula(param=fit.frank.tau@estimate,dim=2), log=T) )
-  res = list(fit.gauss=fit.gauss, fit.gauss.spearman=fit.gauss.spearman
-             , fit.t=fit.t, fit.t.tau=fit.t.tau
-             , fit.frank=fit.frank, fit.frank.tau=fit.frank.tau
-             , fit.gumbel=fit.gumbel, fit.gumbel.tau=fit.gumbel.tau
-             , fit.clayton=fit.clayton, fit.clayton.tau=fit.clayton.tau)
+  res = list(gauss=fit.gauss, gauss.rho=fit.gauss.spearman
+             , t=fit.t, t.tau=fit.t.tau
+             , frank=fit.frank, frank.tau=fit.frank.tau
+             , gumbel=fit.gumbel, gumbel.tau=fit.gumbel.tau
+             , clayton=fit.clayton, clayton.tau=fit.clayton.tau)
 }
 
 #' @title fit multivariate copulas for each bivariate pair of possible combinations
@@ -147,8 +148,7 @@ FIT = pairwise.fit.copulas(Uret)
 load("FIT.RData") # load the result directly
 
 tickerpairs = apply(combn(tickers,2), 2, paste, collapse=":")
-copulanames = c("gauss","gauss.irho","t","t.tau","frank","frank.tau","gumbel","gumbel.tau","clayton","clayton.tau")
-
+copulanames = c("gauss","gauss.rho","t","t.tau","frank","frank.tau","gumbel","gumbel.tau","clayton","clayton.tau")
 
 # loglikelihood
 LOGLIK = c()
@@ -166,7 +166,7 @@ tmp = apply(tmp, 1, function(row){copulanames[which.max(row)]})
 # print
 options(digits=3)
 cbind(data.frame(LOGLIK), winner=tmp)
-
+options(digits=7)
 
 # tail dependence(lambda)
 LAMBDA = c()
@@ -192,6 +192,52 @@ for (i in 1:length(FIT)){
 }
 colnames(RHO) = copulanames
 RHO # print
+
+
+
+### PCA ---------------------------------------------------------------------------
+pca =  princomp(RET, cor = TRUE)
+# screeplot and biplot
+fviz_eig(pca, barfill="grey", barcolor="black")
+fviz_pca_biplot(pca, repel = TRUE, geom = "point", col.var = "black", col.ind = "grey" )
+
+# construct new index and pseudo observations
+NewIndex = RET %*% pca$loadings[,1:2]
+NewIndex = cbind(NewIndex, SP500)
+Uind = apply(NewIndex, 2, edf, adjust=1)
+# check sample spearman's rho
+cor(Uind, method="spearman")
+# scatterplot of X and U
+pairs2(NewIndex, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
+pairs2(Uind, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
+
+# Analysis: Comp.1 = market factor
+# Analysis: Comp.2 = sentiment factor for Solar sector
+RET[index( NewIndex[NewIndex[,"Comp.2"]< -0.1,] ), c("PCG","IDA","SPWR","FSLR")]
+RET[index( NewIndex[NewIndex[,"Comp.2"]> 0.1,] ), c("PCG","IDA","SPWR","FSLR")]
+# when Comp.2>>0, solar stocks plunged
+# when Comp.2<<0, solar stocks surgerd
+# 2013-02-14: https://www.fool.com/investing/general/2013/02/14/3-reasons-sunpower-is-leading-the-charge-in-solar.aspx
+# 2013-04-09: https://www.marketwatch.com/story/first-solar-guidance-shocks-to-the-high-side-2013-04-09
+# 2016-08-10: https://www.fool.com/investing/2016/08/10/why-shares-of-canadian-solar-inc-plunged-10-today.aspx
+# Therefore guess Comp.2 = sentiment factor for Solar sector
+
+
+# Copula for Comp.1 and sp500
+Fit.c1 = fit.copulas( Uind[,c(1,3)] )
+# check loglik and lambda
+sapply(Fit.c1, function(fit){tryCatch(fit@loglik, error=function(err) NA)} )
+sapply(Fit.c1, function(fit){tryCatch(lambda(fit@copula), error=function(err) rep(NA,2))} )
+
+# Copula for Comp.2 and sp500
+Uc2rot = Uind[,c(2,3)]
+plot(Uc2rot) # negatively correlated
+Uc2rot[,1] = 1-Uc2rot[,1] # rotate s.t. able to fit Gumbel.etc
+plot(Uc2rot) # now positively correlated
+Fit.c2 = fit.copulas( Uc2rot )
+# check loglik and lambda
+sapply(Fit.c2, function(fit){tryCatch(fit@loglik, error=function(err) NA)} )
+sapply(Fit.c2, function(fit){tryCatch(lambda(fit@copula), error=function(err) rep(NA,2))} )
 
 
 
