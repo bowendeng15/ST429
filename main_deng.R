@@ -1,4 +1,4 @@
-### Package ----------------------------------------------------------------------------
+### Package ###############################################################################
 library(xts) # xts
 library(car) # qqPlot
 library(QRM) # ESnorm
@@ -7,11 +7,11 @@ library(factoextra) # plot for pca
 
 
 
-### Data ----------------------------------------------------------------------------
+### (a) Data ###############################################################################
 setwd("/Users/Bowen.Deng/Desktop/LSE/ST429/project_025")
 tmp = read.csv("429stocks.csv", stringsAsFactors=FALSE)
 tmp$TICKER[tmp$TICKER=="SPWRA"] = "SPWR"
-# extract tickers and dates
+# obtain tickers and dates
 tickers = unique(tmp$TICKER)
 dates = as.Date(as.character( unique(tmp$date) ), format="%Y%m%d")
 # returns for stocks
@@ -23,6 +23,17 @@ colnames(RET) = tickers
 RET = log(RET+1) # RET_{t}:=S_{t+1}/S_{t}-1, X_{t}=log(S_{t+1}/S_{t})=log(RET_{t}+1)
 RET = xts(RET, order.by=dates)
 head(RET)
+# obtain marketcap
+tmp = tmp[tmp$date=="20181231",]
+marketcap = matrix(tmp$PRC*tmp$SHROUT, nrow=1)/1000000
+colnames(marketcap) = tickers
+marketcap
+# obtain statistics for RET
+apply(RET,2,mean)*10000
+apply(RET,2,sd)*100
+apply(RET,2,skewness)
+apply(RET,2,kurtosis)
+
 # SP500 return
 tmp = read.csv("429sp.csv", stringsAsFactors=FALSE)
 SP500 = xts(tmp$vwretd, order.by=dates)
@@ -30,14 +41,14 @@ SP500 = log(SP500+1)
 
 
 
-### Log Return ----------------------------------------------------------------------------
+### (b) Log Return ###############################################################################
 par(mfrow=c(1,1))
 plot.zoo(cbind(SP500,RET[,1:5]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="",cex.main=2)
 plot.zoo(cbind(SP500,RET[,6:10]), screens=1:10, col=c("royalblue",rep(1,5)), las=1, main="Log Returns", xlab="",cex.main=2)
 
 
 
-### Portfolio ---------------------------------------------------------------------------
+### (c) Portfolio ###############################################################################
 
 #' @title function for computing total loss of a portfolio
 #' @param RET vector or matrix, returns
@@ -80,18 +91,21 @@ legend("topleft", legend=c("normal","HS"), col=1:2, lty=1, bty="n")
 
 
 
-### Copulas ---------------------------------------------------------------------------
+### (d) Copulas ###############################################################################
+
+## (d.1) Pseudo-observations ------------------------------------
+RET = RET[,c("PCG","IDA","SPWR","FSLR","TSLA")]
 Uret = apply(RET, 2, edf, adjust=1) # pobs(RET, ties.method = "max")
 # scatterplot
 pairs2(RET, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
 pairs2(Uret, cex=0.1, col=adjustcolor("black",alpha.f=0.3)) # plot(as.matrix(Uret[,4:5]), pch=1) # CVA
 
 
+## (d.2) Fit Copula --------------------------------------------
 #' @title try to fitCopula or return NA
 tryFitCopula = function(...){
   tryCatch(fitCopula(...), error=function(err) NA)
 }
-
 #' @title fit bivarite copulas including gauss,t,gumbel,clayton and frank
 #' @param U matrix, bivarite pseudo observations
 #' @return list, consists of different fitCopula class objects
@@ -127,7 +141,6 @@ fit.copulas = function(U){
              , gumbel=fit.gumbel, gumbel.tau=fit.gumbel.tau
              , clayton=fit.clayton, clayton.tau=fit.clayton.tau)
 }
-
 #' @title fit multivariate copulas for each bivariate pair of possible combinations
 #' @param U matrix, multivariate pseudo observations
 #' @return list, have choose(10,2) slots of object returned by fit.copulas
@@ -142,60 +155,114 @@ pairwise.fit.copulas = function(U){
   return(res)
 }
 
-
 # fit pairwisely - take 5 minutes
 FIT = pairwise.fit.copulas(Uret)
-load("FIT.RData") # load the result directly
 
-tickerpairs = apply(combn(tickers,2), 2, paste, collapse=":")
+tickerpairs = apply(combn(c("PCG","IDA","SPWR","FSLR","TSLA"),2), 2, paste, collapse=":")
 copulanames = c("gauss","gauss.rho","t","t.tau","frank","frank.tau","gumbel","gumbel.tau","clayton","clayton.tau")
+
+
+## (d.3) Fit Diagnostics -------------------------------------------------
+
+# function to obtain p.value of gofCopula of fit using data U
+gof.apply = function(fit, U){
+  copula = tryCatch(fit@copula, error=function(err) NA)
+  # for t-copula, df is fixed and round to the nearest integer
+  if (class(copula)=="tCopula") {
+    copula@df.fixed=TRUE
+    copula@parameters[which(copula@param.names=="df")] = as.integer(round( copula@parameters[which(copula@param.names=="df")] ))
+    attr(copula@parameters,"fixed")[which(copula@param.names=="df")] = TRUE
+  }
+  # set different estim.method
+  method = tryCatch(fit@method, error=function(err) NA)
+  if ( grepl("rho",method) ) { method="irho" }
+  else if ( grepl("tau",method) ) { method="itau" }
+  else { method="mpl" }
+  tryCatch(gofCopula(copula,U,100,estim.method=method,simulation="mult",verbose=F)$p.value, error=function(err) NA)
+}
+# function to obtain loglik of fit
+loglik.apply = function(fit){ tryCatch(fit@loglik, error=function(err) NA) }
+# function to obtain lambda of fit
+lambda.apply = function(fit){ tryCatch(lambda(fit@copula), error=function(err) rep(NA,2)) }
+# function to obtain rho of fit
+rho.apply = function(fit){ tryCatch(rho(fit@copula), error=function(err) NA) }
+
+
+# gof test p.value
+GOF = c()
+comb = combn(1:ncol(Uret), 2)
+for (i in 1:length(FIT)){
+  tickerpair = tickerpairs[i]
+  cat("testing pairs", tickerpair, ", ")
+  tmp = sapply(FIT[[i]], gof.apply, U=Uret[,comb[,i]])
+  tmp = matrix(tmp, nrow=1)
+  rownames(tmp) = tickerpair
+  # rownames(tmp) = tickerpair
+  GOF = rbind(GOF, tmp)
+}
+colnames(GOF) = copulanames
+# print
+options(digits = 3)
+GOF
 
 # loglikelihood
 LOGLIK = c()
 for (i in 1:length(FIT)){
   tickerpair = tickerpairs[i]
-  tmp = sapply(FIT[[i]], function(fit){tryCatch(fit@loglik, error=function(err) NA)} )
+  tmp = sapply(FIT[[i]], loglik.apply)
   tmp = matrix(tmp, nrow=1)
   rownames(tmp) = tickerpair
   LOGLIK = rbind(LOGLIK, tmp)
 }
 colnames(LOGLIK) = copulanames
-tmp = LOGLIK
-tmp[is.na(tmp)]=0
-tmp = apply(tmp, 1, function(row){copulanames[which.max(row)]})
 # print
-options(digits=3)
-cbind(data.frame(LOGLIK), winner=tmp)
-options(digits=7)
+options(digits=4)
+LOGLIK
+# tmp = LOGLIK
+# tmp[is.na(tmp)]=0
+# tmp = apply(tmp, 1, function(row){copulanames[which.max(row)]})
+# cbind(data.frame(LOGLIK), winner=tmp)
 
+# show loglik where p.value of gof > 0.05
+tmp = LOGLIK
+tmp[GOF<0.05 | is.na(GOF)] = -Inf
+options(digits=4)
+tmp
+
+## (d.4) Dependence Measures -----------------------------------------------
 # tail dependence(lambda)
 LAMBDA = c()
 for (i in 1:length(FIT)){
   tickerpair = tickerpairs[i]
-  tmp = sapply(FIT[[i]], function(fit){tryCatch(lambda(fit@copula), error=function(err) rep(NA,2))} )
+  tmp = sapply(FIT[[i]], lambda.apply)
   rownames(tmp) = paste(tickerpair,c("l","u"),sep="-")
   LAMBDA = rbind(LAMBDA, tmp)
 }
 colnames(LAMBDA) = copulanames
-LAMBDA # print
-
+# print
+options(digits=3)
+LAMBDA
 
 # Spearman's rho
 RHO = c()
 for (i in 1:length(FIT)){
   tickerpair = tickerpairs[i]
-  tmp = sapply(FIT[[i]], function(fit){tryCatch(rho(fit@copula), error=function(err) NA)} )
+  tmp = sapply(FIT[[i]], rho.apply)
   tmp = matrix(tmp, nrow=1)
   rownames(tmp) = tickerpair
   # rownames(tmp) = tickerpair
   RHO = rbind(RHO, tmp)
 }
 colnames(RHO) = copulanames
-RHO # print
+# print
+options(digits=3)
+RHO
 
 
 
-### PCA ---------------------------------------------------------------------------
+### (e) PCA #############################################################################
+
+## (e.1) PCA and Construct New Index -----------------------------------
 pca =  princomp(RET, cor = TRUE)
 # screeplot and biplot
 fviz_eig(pca, barfill="grey", barcolor="black")
@@ -211,8 +278,11 @@ cor(Uind, method="spearman")
 pairs2(NewIndex, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
 pairs2(Uind, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
 
-# Analysis: Comp.1 = market factor
-# Analysis: Comp.2 = sentiment factor for Solar sector
+
+## (e.2) Analysis --------------------------------------------------------
+# Comp.1: market factor
+
+# Comp.2 verion 1: sentiment factor for Solar sector
 RET[index( NewIndex[NewIndex[,"Comp.2"]< -0.1,] ), c("PCG","IDA","SPWR","FSLR")]
 RET[index( NewIndex[NewIndex[,"Comp.2"]> 0.1,] ), c("PCG","IDA","SPWR","FSLR")]
 # when Comp.2>>0, solar stocks plunged
@@ -220,14 +290,22 @@ RET[index( NewIndex[NewIndex[,"Comp.2"]> 0.1,] ), c("PCG","IDA","SPWR","FSLR")]
 # 2013-02-14: https://www.fool.com/investing/general/2013/02/14/3-reasons-sunpower-is-leading-the-charge-in-solar.aspx
 # 2013-04-09: https://www.marketwatch.com/story/first-solar-guidance-shocks-to-the-high-side-2013-04-09
 # 2016-08-10: https://www.fool.com/investing/2016/08/10/why-shares-of-canadian-solar-inc-plunged-10-today.aspx
-# Therefore guess Comp.2 = sentiment factor for Solar sector
+
+# Comp.2 version 2: risk factor related to the stock
+apply(RET,2,sd)
+apply(RET,2,skewness)
+# For SPWR, FSLR, TSLA, sd > 0.03
+# For SPWR, FSLR, TSLA, skewness >= 0.3
+# Therefore combine volatility and skewness as one risk factor
 
 
+## (e.3) Fit Copulas --------------------------------------------------------
 # Copula for Comp.1 and sp500
 Fit.c1 = fit.copulas( Uind[,c(1,3)] )
-# check loglik and lambda
-sapply(Fit.c1, function(fit){tryCatch(fit@loglik, error=function(err) NA)} )
-sapply(Fit.c1, function(fit){tryCatch(lambda(fit@copula), error=function(err) rep(NA,2))} )
+# check gof, loglik and lambda
+sapply(Fit.c1, gof.apply, U=Uind[,c(1,3)])
+sapply(Fit.c1, loglik.apply)
+sapply(Fit.c1, lambda.apply)
 
 # Copula for Comp.2 and sp500
 Uc2rot = Uind[,c(2,3)]
@@ -235,11 +313,11 @@ plot(Uc2rot) # negatively correlated
 Uc2rot[,1] = 1-Uc2rot[,1] # rotate s.t. able to fit Gumbel.etc
 plot(Uc2rot) # now positively correlated
 Fit.c2 = fit.copulas( Uc2rot )
-# check loglik and lambda
-sapply(Fit.c2, function(fit){tryCatch(fit@loglik, error=function(err) NA)} )
-sapply(Fit.c2, function(fit){tryCatch(lambda(fit@copula), error=function(err) rep(NA,2))} )
+# check gof, loglik and lambda
+sapply(Fit.c2, gof.apply, U=Uc2rot)
+sapply(Fit.c2, loglik.apply)
+sapply(Fit.c2, lambda.apply)
 
 
-
-### Marshall-Olkin Copula ---------------------------------------------------------------------------
+### (f) Marshall-Olkin Copula ---------------------------------------------------------------------------
 moCopula() # Marshall-Olkin copulas do not have densities (in "copula" package)
