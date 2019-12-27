@@ -94,11 +94,11 @@ legend("topleft", legend=c("normal","HS"), col=1:2, lty=1, bty="n")
 ### (d) Copulas ###############################################################################
 
 ## (d.1) Pseudo-observations ------------------------------------
-RET = RET[,c("PCG","IDA","SPWR","FSLR","TSLA")]
+RET = RET[,c("GE","ITT","PCG","IDA","SPWR","FSLR","TSLA")]
 Uret = apply(RET, 2, edf, adjust=1) # pobs(RET, ties.method = "max")
 # scatterplot
-pairs2(RET, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
-pairs2(Uret, cex=0.1, col=adjustcolor("black",alpha.f=0.3)) # plot(as.matrix(Uret[,4:5]), pch=1) # CVA
+pairs2(RET, cex=0.3, col=adjustcolor("black",alpha.f=0.3))
+pairs2(Uret, cex=0.3, col=adjustcolor("black",alpha.f=0.3)) # plot(as.matrix(Uret[,4:5]), pch=1) # CVA
 
 
 ## (d.2) Fit Copula --------------------------------------------
@@ -141,29 +141,6 @@ fit.copulas = function(U){
              , gumbel=fit.gumbel, gumbel.tau=fit.gumbel.tau
              , clayton=fit.clayton, clayton.tau=fit.clayton.tau)
 }
-#' @title fit multivariate copulas for each bivariate pair of possible combinations
-#' @param U matrix, multivariate pseudo observations
-#' @return list, have choose(10,2) slots of object returned by fit.copulas
-pairwise.fit.copulas = function(U){
-  d = ncol(U)
-  comb = combn(1:d, 2)
-  res = list()
-  for (i in 1:ncol(comb)){
-    cat("fitting pairs", comb[,i], ", ")
-    res[[i]] = fit.copulas(U[,comb[,i]])
-  }
-  return(res)
-}
-
-# fit pairwisely - take 5 minutes
-FIT = pairwise.fit.copulas(Uret)
-
-tickerpairs = apply(combn(c("PCG","IDA","SPWR","FSLR","TSLA"),2), 2, paste, collapse=":")
-copulanames = c("gauss","gauss.rho","t","t.tau","frank","frank.tau","gumbel","gumbel.tau","clayton","clayton.tau")
-
-
-## (d.3) Fit Diagnostics -------------------------------------------------
-
 # function to obtain p.value of gofCopula of fit using data U
 gof.apply = function(fit, U){
   copula = tryCatch(fit@copula, error=function(err) NA)
@@ -178,7 +155,7 @@ gof.apply = function(fit, U){
   if ( grepl("rho",method) ) { method="irho" }
   else if ( grepl("tau",method) ) { method="itau" }
   else { method="mpl" }
-  tryCatch(gofCopula(copula,U,100,estim.method=method,simulation="mult",verbose=F)$p.value, error=function(err) NA)
+  tryCatch(gofCopula(copula,U,200,estim.method=method,simulation="mult",verbose=F)$p.value, error=function(err) NA)
 }
 # function to obtain loglik of fit
 loglik.apply = function(fit){ tryCatch(fit@loglik, error=function(err) NA) }
@@ -187,76 +164,38 @@ lambda.apply = function(fit){ tryCatch(lambda(fit@copula), error=function(err) r
 # function to obtain rho of fit
 rho.apply = function(fit){ tryCatch(rho(fit@copula), error=function(err) NA) }
 
+# check scatterplots
+par(mfrow=c(2,2))
+par(mar=c(4.1, 4.1, 1.1, 2.1))
+plot(Uret[,c("GE","ITT")], cex=0.8, col=adjustcolor("black",alpha.f=0.3))
+plot(Uret[,c("SPWR","FSLR")], cex=0.8, col=adjustcolor("black",alpha.f=0.3))
+plot(Uret[,c("FSLR","TSLA")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
+plot(Uret[,c("PCG","SPWR")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
 
-# gof test p.value
-GOF = c()
-comb = combn(1:ncol(Uret), 2)
-for (i in 1:length(FIT)){
-  tickerpair = tickerpairs[i]
-  cat("testing pairs", tickerpair, ", ")
-  tmp = sapply(FIT[[i]], gof.apply, U=Uret[,comb[,i]])
-  tmp = matrix(tmp, nrow=1)
-  rownames(tmp) = tickerpair
-  # rownames(tmp) = tickerpair
-  GOF = rbind(GOF, tmp)
-}
-colnames(GOF) = copulanames
-# print
-options(digits = 3)
-GOF
-
-# loglikelihood
-LOGLIK = c()
-for (i in 1:length(FIT)){
-  tickerpair = tickerpairs[i]
-  tmp = sapply(FIT[[i]], loglik.apply)
-  tmp = matrix(tmp, nrow=1)
-  rownames(tmp) = tickerpair
-  LOGLIK = rbind(LOGLIK, tmp)
-}
-colnames(LOGLIK) = copulanames
-# print
-options(digits=4)
-LOGLIK
-# tmp = LOGLIK
-# tmp[is.na(tmp)]=0
-# tmp = apply(tmp, 1, function(row){copulanames[which.max(row)]})
-# cbind(data.frame(LOGLIK), winner=tmp)
-
-# show loglik where p.value of gof > 0.05
-tmp = LOGLIK
-tmp[GOF<0.05 | is.na(GOF)] = -Inf
-options(digits=4)
-tmp
-
-## (d.4) Dependence Measures -----------------------------------------------
-# tail dependence(lambda)
-LAMBDA = c()
-for (i in 1:length(FIT)){
-  tickerpair = tickerpairs[i]
-  tmp = sapply(FIT[[i]], lambda.apply)
-  rownames(tmp) = paste(tickerpair,c("l","u"),sep="-")
-  LAMBDA = rbind(LAMBDA, tmp)
-}
-colnames(LAMBDA) = copulanames
-# print
-options(digits=3)
-LAMBDA
-
-# Spearman's rho
-RHO = c()
-for (i in 1:length(FIT)){
-  tickerpair = tickerpairs[i]
-  tmp = sapply(FIT[[i]], rho.apply)
-  tmp = matrix(tmp, nrow=1)
-  rownames(tmp) = tickerpair
-  # rownames(tmp) = tickerpair
-  RHO = rbind(RHO, tmp)
-}
-colnames(RHO) = copulanames
-# print
-options(digits=3)
-RHO
+# GE:ITT
+Fit.GE.ITT = fit.copulas( Uret[,c("GE","ITT")] )
+( gof.GE.ITT = sapply(Fit.GE.ITT, gof.apply, Uret[,c("GE","ITT")]) )
+sapply(Fit.GE.ITT, loglik.apply)
+sapply(Fit.GE.ITT, lambda.apply)
+sapply(Fit.GE.ITT, rho.apply)
+# SPWR:FSLR
+Fit.SPWR.FSLR = fit.copulas( Uret[,c("SPWR","FSLR")] )
+( gof.SPWR.FSLR = sapply(Fit.SPWR.FSLR, gof.apply, Uret[,c("SPWR","FSLR")]) )
+sapply(Fit.SPWR.FSLR, loglik.apply)
+sapply(Fit.SPWR.FSLR, lambda.apply)
+sapply(Fit.SPWR.FSLR, rho.apply)
+# FSLR:TSLA
+Fit.FSLR.TSLA = fit.copulas( Uret[,c("FSLR","TSLA")] )
+( gof.FSLR.TSLA = sapply(Fit.FSLR.TSLA, gof.apply, Uret[,c("FSLR","TSLA")]) )
+sapply(Fit.FSLR.TSLA, loglik.apply)
+sapply(Fit.FSLR.TSLA, lambda.apply)
+sapply(Fit.FSLR.TSLA, rho.apply)
+# PCG:SPWR
+Fit.PCG.SPWR = fit.copulas( Uret[,c("PCG","SPWR")] )
+( gof.PCG.SPWR = sapply(Fit.PCG.SPWR, gof.apply, Uret[,c("PCG","SPWR")]) )
+sapply(Fit.PCG.SPWR, loglik.apply)
+sapply(Fit.PCG.SPWR, lambda.apply)
+sapply(Fit.PCG.SPWR, rho.apply)
 
 
 
@@ -303,7 +242,7 @@ apply(RET,2,skewness)
 # Copula for Comp.1 and sp500
 Fit.c1 = fit.copulas( Uind[,c(1,3)] )
 # check gof, loglik and lambda
-sapply(Fit.c1, gof.apply, U=Uind[,c(1,3)])
+( gof.c1 = sapply(Fit.c1, gof.apply, U=Uind[,c(1,3)]) )
 sapply(Fit.c1, loglik.apply)
 sapply(Fit.c1, lambda.apply)
 
@@ -314,7 +253,7 @@ Uc2rot[,1] = 1-Uc2rot[,1] # rotate s.t. able to fit Gumbel.etc
 plot(Uc2rot) # now positively correlated
 Fit.c2 = fit.copulas( Uc2rot )
 # check gof, loglik and lambda
-sapply(Fit.c2, gof.apply, U=Uc2rot)
+( gof.c2 = sapply(Fit.c2, gof.apply, U=Uc2rot) )
 sapply(Fit.c2, loglik.apply)
 sapply(Fit.c2, lambda.apply)
 
