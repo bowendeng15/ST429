@@ -94,11 +94,11 @@ legend("topleft", legend=c("normal","HS"), col=1:2, lty=1, bty="n")
 ### (d) Copulas ###############################################################################
 
 ## (d.1) Pseudo-observations ------------------------------------
-RET = RET[,c("GE","ITT","PCG","IDA","SPWR","FSLR","TSLA")]
+tickers = c("GE","ITT","PCG","IDA","SPWR","FSLR","TSLA")
 Uret = apply(RET, 2, edf, adjust=1) # pobs(RET, ties.method = "max")
 # scatterplot
-pairs2(RET, cex=0.3, col=adjustcolor("black",alpha.f=0.3))
-pairs2(Uret, cex=0.3, col=adjustcolor("black",alpha.f=0.3)) # plot(as.matrix(Uret[,4:5]), pch=1) # CVA
+pairs2(RET[,tickers], cex=0.3, col=adjustcolor("black",alpha.f=0.3))
+pairs2(Uret[,tickers], cex=0.3, col=adjustcolor("black",alpha.f=0.3)) # plot(as.matrix(Uret[,4:5]), pch=1) # CVA
 
 
 ## (d.2) Fit Copula --------------------------------------------
@@ -141,6 +141,12 @@ fit.copulas = function(U){
              , gumbel=fit.gumbel, gumbel.tau=fit.gumbel.tau
              , clayton=fit.clayton, clayton.tau=fit.clayton.tau)
 }
+# function to obtain bic of fit
+bic = function(fit){
+  k = length(fit@estimate) # number of paramters
+  if ( grepl("rho", fit@method) | grepl("tau", fit@method) ) {k=k-1}
+  return( -2*fit@loglik+log(fit@nsample)*k )
+}
 # function to obtain p.value of gofCopula of fit using data U
 gof.apply = function(fit, U){
   copula = tryCatch(fit@copula, error=function(err) NA)
@@ -159,6 +165,8 @@ gof.apply = function(fit, U){
 }
 # function to obtain loglik of fit
 loglik.apply = function(fit){ tryCatch(fit@loglik, error=function(err) NA) }
+# function to obtain bic of fit
+bic.apply = function(fit){ tryCatch(bic(fit), error=function(err) NA) }
 # function to obtain lambda of fit
 lambda.apply = function(fit){ tryCatch(lambda(fit@copula), error=function(err) rep(NA,2)) }
 # function to obtain rho of fit
@@ -167,6 +175,11 @@ rho.apply = function(fit){ tryCatch(rho(fit@copula), error=function(err) NA) }
 # check scatterplots
 par(mfrow=c(2,2))
 par(mar=c(4.1, 4.1, 1.1, 2.1))
+plot.default(RET[,c("GE","ITT")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
+plot.default(RET[,c("SPWR","FSLR")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
+plot.default(RET[,c("FSLR","TSLA")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
+plot.default(RET[,c("PCG","SPWR")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
+
 plot(Uret[,c("GE","ITT")], cex=0.8, col=adjustcolor("black",alpha.f=0.3))
 plot(Uret[,c("SPWR","FSLR")], cex=0.8, col=adjustcolor("black",alpha.f=0.3))
 plot(Uret[,c("FSLR","TSLA")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
@@ -176,33 +189,37 @@ plot(Uret[,c("PCG","SPWR")], cex=0.8, col=adjustcolor("black",alpha.f=0.5))
 Fit.GE.ITT = fit.copulas( Uret[,c("GE","ITT")] )
 ( gof.GE.ITT = sapply(Fit.GE.ITT, gof.apply, Uret[,c("GE","ITT")]) )
 sapply(Fit.GE.ITT, loglik.apply)
+sapply(Fit.GE.ITT, bic.apply)
 sapply(Fit.GE.ITT, lambda.apply)
 sapply(Fit.GE.ITT, rho.apply)
 # SPWR:FSLR
 Fit.SPWR.FSLR = fit.copulas( Uret[,c("SPWR","FSLR")] )
 ( gof.SPWR.FSLR = sapply(Fit.SPWR.FSLR, gof.apply, Uret[,c("SPWR","FSLR")]) )
 sapply(Fit.SPWR.FSLR, loglik.apply)
+sapply(Fit.SPWR.FSLR, bic.apply)
 sapply(Fit.SPWR.FSLR, lambda.apply)
 sapply(Fit.SPWR.FSLR, rho.apply)
 # FSLR:TSLA
 Fit.FSLR.TSLA = fit.copulas( Uret[,c("FSLR","TSLA")] )
 ( gof.FSLR.TSLA = sapply(Fit.FSLR.TSLA, gof.apply, Uret[,c("FSLR","TSLA")]) )
 sapply(Fit.FSLR.TSLA, loglik.apply)
+sapply(Fit.FSLR.TSLA, bic.apply)
 sapply(Fit.FSLR.TSLA, lambda.apply)
 sapply(Fit.FSLR.TSLA, rho.apply)
 # PCG:SPWR
 Fit.PCG.SPWR = fit.copulas( Uret[,c("PCG","SPWR")] )
 ( gof.PCG.SPWR = sapply(Fit.PCG.SPWR, gof.apply, Uret[,c("PCG","SPWR")]) )
 sapply(Fit.PCG.SPWR, loglik.apply)
+sapply(Fit.PCG.SPWR, bic.apply)
 sapply(Fit.PCG.SPWR, lambda.apply)
 sapply(Fit.PCG.SPWR, rho.apply)
-
 
 
 ### (e) PCA #############################################################################
 
 ## (e.1) PCA and Construct New Index -----------------------------------
 pca =  princomp(RET, cor = TRUE)
+
 # screeplot and biplot
 fviz_eig(pca, barfill="grey", barcolor="black")
 fviz_pca_biplot(pca, repel = TRUE, geom = "point", col.var = "black", col.ind = "grey" )
@@ -216,6 +233,11 @@ cor(Uind, method="spearman")
 # scatterplot of X and U
 pairs2(NewIndex, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
 pairs2(Uind, cex=0.1, col=adjustcolor("black",alpha.f=0.3))
+# plot of cumulative returns to compare trends
+par(mfrow=c(1,1))
+cumret = cumprod(exp(NewIndex))-1
+cumret = scale(cumret, center=c(0,0,0), scale=c(1,1,1/8))
+plot(cumret, legend.loc="topleft", col=c("red","blue","black"), main="Scaled Cumulative Returns")
 
 
 ## (e.2) Analysis --------------------------------------------------------
@@ -232,10 +254,8 @@ RET[index( NewIndex[NewIndex[,"Comp.2"]> 0.1,] ), c("PCG","IDA","SPWR","FSLR")]
 
 # Comp.2 version 2: risk factor related to the stock
 apply(RET,2,sd)
-apply(RET,2,skewness)
 # For SPWR, FSLR, TSLA, sd > 0.03
-# For SPWR, FSLR, TSLA, skewness >= 0.3
-# Therefore combine volatility and skewness as one risk factor
+# Therefore take volatility as a risk factor
 
 
 ## (e.3) Fit Copulas --------------------------------------------------------
@@ -260,3 +280,39 @@ sapply(Fit.c2, lambda.apply)
 
 ### (f) Marshall-Olkin Copula ---------------------------------------------------------------------------
 moCopula() # Marshall-Olkin copulas do not have densities (in "copula" package)
+
+dcopula.MO = function (u, par, l13, l23, log = TRUE) {
+  if ( length(par)!=1 ) stop("need 3 params")
+  if ( ncol(u)!=2 ) stop("Marshall-Olkin copulas only available in the bivariate case")
+  a = par/l13; b = par/l23
+  res = apply(u, 1, function(row){
+    u = row[1]; v = row[2]
+    if (u^a > v^b) { res = log(1-a)-a*log(u) }
+    else { res = log(1-b)-b*log(v) }
+  })
+  res = res + log(dexp(qexp(u,l13),l13)) + log(dexp(qexp(u,l23),l23))
+  if (!log) { res = exp(res) }
+  return(res)
+}
+
+fit.MO = function (Udata, initial = 0.5, ...) {
+  l13 = 1; l23=1
+  cat("l13", l13)
+  cat("l23", l23)
+  fn = function(par) { -sum( dcopula.MO(Udata, par, l13, l23, log = TRUE) ) }
+  fit = optim(initial, fn=fn, lower=0, upper=min(l13,l23)
+              , method="L-BFGS-B"
+              , ...)
+  # param = c(fit$par[3]/(fit$par[1]+fit$par[3]), fit$par[3]/(fit$par[2]+fit$par[3]))
+  # res = list(param=param, loglik=-fit$value, fit=fit)
+  res = fit
+  return(res)
+}
+
+u = rCopula(1000, moCopula(c(0.3,0.1)))
+sum(dcopula.MO(u, 0, 2,2))
+fit.MO(Uret[,c("GE","ITT")])
+
+library(MASS)
+t = fitdistr(rexp(1000,10), "exponential")
+t$estimate
